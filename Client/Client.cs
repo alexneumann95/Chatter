@@ -14,7 +14,6 @@ namespace Chatter
         private static Socket _server;
         private static ClientStatus _status;
         private static Thread _connectionThread;
-        private static Thread _listeningThread;
         private static byte[] _receiveBuffer = new byte[Server.BufferSize];
         private static byte[] _sendBuffer = new byte[Server.BufferSize];
         private static byte[] _id;
@@ -42,8 +41,6 @@ namespace Chatter
 
             if (_connectionThread.IsAlive)
                 _connectionThread.Abort();
-            if (_listeningThread.IsAlive)
-                _listeningThread.Abort();
         }
 
         // Prints a message to the chat log
@@ -62,9 +59,12 @@ namespace Chatter
         public static void SendMessageToServer(byte rule, string data)
         {
             // Construct message
-            Message msg = new Message(_id, rule, Encoding.ASCII.GetBytes(data));
-            _sendBuffer = msg.Msg;
-            _server.Send(_sendBuffer);
+            if (data.Length > 0)
+            {
+                Message msg = new Message(_id, rule, Encoding.ASCII.GetBytes(data));
+                _sendBuffer = msg.Msg;
+                _server.Send(_sendBuffer);
+            }
         }
 
         // Tries to connect to the server indefinitely
@@ -86,15 +86,14 @@ namespace Chatter
                     // Get ID from server
                     Message msgReceived = ReceiveMessageFromServer();
                     _id = msgReceived.Data;
-                    PrintToChatLogAsClient("ID recieved from server: " + System.Text.Encoding.ASCII.GetString(_id));
+                    PrintToChatLogAsClient("ID recieved from server: " + Encoding.ASCII.GetString(_id));
 
                     // Client is now connected to server
                     _status = ClientStatus.CONNECTED;
                     PrintToChatLogAsClient("Successfully connected to server!");
 
-                    // Start listening thread
-                    _listeningThread = new Thread(new ThreadStart(ListenLoop));
-                    _listeningThread.Start();
+                    // Start listening to server
+                    _server.BeginReceive(_receiveBuffer, 0, Server.BufferSize, SocketFlags.None, new AsyncCallback(ReceiveCallback), null);
                 }
                 catch (SocketException)
                 {
@@ -120,32 +119,53 @@ namespace Chatter
             }
             catch (SocketException e)
             {
-                switch (e.ErrorCode)
-                {
-                    case 10054:
-                        PrintToChatLogAsClient("You have been disconnected from the server! Please reboot the client");
-                        Stop();
-                        break;
-                    case 10053:
-                        PrintToChatLogAsClient("Server connection was aborted! Please reboot the client");
-                        Stop();
-                        break;
-                    default:
-                        throw e;
-                }
+                HandleSocketErrors(e);
             }
 
             return null;
         }
 
-        // Recieves messages from the server and displays to the chat log
-        private static void ListenLoop()
+        // Handles receiving messages from the server ASYNC
+        private static void ReceiveCallback(IAsyncResult ar)
         {
-            while (_status == ClientStatus.CONNECTED)
+            try
             {
-                Message receivedMessage = ReceiveMessageFromServer();
-                if (receivedMessage != null)
-                    PrintToChatLog(receivedMessage.SID + " > " + receivedMessage.SData);
+                int byteReceived = _server.EndReceive(ar);
+                if (byteReceived > 0)
+                {
+                    Message receivedMsg = new Message(_receiveBuffer, byteReceived);
+                    PrintToChatLog(receivedMsg.SID + " > " + receivedMsg.SData);
+
+                    // Allow the server to send another message
+                    _server.BeginReceive(_receiveBuffer, 0, Server.BufferSize, SocketFlags.None, new AsyncCallback(ReceiveCallback), null);
+                }
+                else // Disconnected from server
+                {
+                    Stop();
+                    PrintToChatLogAsClient("Server has terminated your connection! Please reboot the client");
+                }
+            }
+            catch (SocketException e)
+            {
+                HandleSocketErrors(e);
+            }
+        }
+
+        // Handles errors throw by sockets
+        private static void HandleSocketErrors(SocketException e)
+        {
+            switch (e.ErrorCode)
+            {
+                case 10054:
+                    PrintToChatLogAsClient("You have been disconnected from the server! Please reboot the client");
+                    Stop();
+                    break;
+                case 10053:
+                    PrintToChatLogAsClient("Server connection was aborted! Please reboot the client");
+                    Stop();
+                    break;
+                default:
+                    throw e;
             }
         }
     }

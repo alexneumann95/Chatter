@@ -26,9 +26,12 @@ namespace Chatter
                 if (ke.Key == System.Windows.Input.Key.Enter)
                 {
                     string data = messageBox.Text;
-                    messageBox.Text = "";
-                    Client.SendMessageToServer(Rules.MESSAGE, data);
-                    Client.PrintToChatLog("You > " + data);
+                    if (data.Length > 0)
+                    {
+                        messageBox.Text = "";
+                        Client.SendMessageToServer(Rules.MESSAGE, data);
+                        Client.PrintToChatLog("You > " + data);
+                    }
                 }
             };
         }

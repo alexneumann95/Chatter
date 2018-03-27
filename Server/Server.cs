@@ -107,7 +107,13 @@ namespace Chatter
                     return;
                 }
 
-                PrintToServerLog(msgReceived.ToString());
+                PrintToServerLog("Received: " + msgReceived.ToString());
+                // Send the message to all other clients
+                foreach (Client c in _clients)
+                {
+                    if (!c.Equals(client))
+                        SendMsgToClient(c, msgReceived);
+                }
 
                 // Allow the client to send another message
                 client.Handler.BeginReceive(client.ReceiveBuffer, 0, BufferSize, SocketFlags.None, new AsyncCallback(ReceiveCallback), client);
